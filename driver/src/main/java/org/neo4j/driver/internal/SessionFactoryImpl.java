@@ -31,6 +31,7 @@ public class SessionFactoryImpl implements SessionFactory
     protected final RetryLogic retryLogic;
     protected final Logging logging;
     protected final boolean leakedSessionsLoggingEnabled;
+    private final TransactionFactory transactionFactory;
 
     SessionFactoryImpl( ConnectionProvider connectionProvider, RetryLogic retryLogic, Config config )
     {
@@ -38,6 +39,7 @@ public class SessionFactoryImpl implements SessionFactory
         this.leakedSessionsLoggingEnabled = config.logLeakedSessions();
         this.retryLogic = retryLogic;
         this.logging = config.logging();
+        this.transactionFactory = new TransactionFactory( config.logging() );
     }
 
     @Override
@@ -53,6 +55,7 @@ public class SessionFactoryImpl implements SessionFactory
             session = new NetworkSession( connectionProvider, mode, retryLogic, logging );
         }
         session.setBookmark( bookmark );
+        session.setTxFactory( transactionFactory );
         return session;
     }
 

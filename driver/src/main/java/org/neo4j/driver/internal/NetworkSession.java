@@ -52,6 +52,7 @@ public class NetworkSession implements Session, SessionResourcesHandler
     private final AccessMode mode;
     private final RetryLogic retryLogic;
     protected final Logger logger;
+    private TransactionFactory txFactory;
 
     private String bookmark;
     private PooledConnection currentConnection;
@@ -66,6 +67,11 @@ public class NetworkSession implements Session, SessionResourcesHandler
         this.mode = mode;
         this.retryLogic = retryLogic;
         this.logger = new DelegatingLogger( logging.getLog( LOG_NAME ), String.valueOf( hashCode() ) );
+    }
+
+    public void setTxFactory( TransactionFactory txFactory )
+    {
+        this.txFactory = txFactory;
     }
 
     @Override
@@ -287,7 +293,7 @@ public class NetworkSession implements Session, SessionResourcesHandler
         syncAndCloseCurrentConnection();
         currentConnection = acquireConnection( mode );
 
-        currentTransaction = new ExplicitTransaction( currentConnection, this, bookmark);
+        currentTransaction = txFactory.createTransaction( currentConnection, this, bookmark );
         currentConnection.setResourcesHandler( this );
         return currentTransaction;
     }

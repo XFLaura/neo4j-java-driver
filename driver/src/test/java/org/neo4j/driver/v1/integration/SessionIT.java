@@ -34,9 +34,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
 
 import org.neo4j.driver.internal.DriverFactory;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
+import org.neo4j.driver.internal.logging.ConsoleLogging;
 import org.neo4j.driver.internal.logging.DevNullLogging;
 import org.neo4j.driver.internal.retry.RetrySettings;
 import org.neo4j.driver.internal.util.DriverFactoryWithFixedRetryLogic;
@@ -89,10 +91,44 @@ import static org.neo4j.driver.v1.util.ServerVersion.v3_1_0;
 public class SessionIT
 {
     @Rule
-    public TestNeo4j neo4j = new TestNeo4j();
+    public TestNeo4j neo4j/* = new TestNeo4j()*/;
 
     @Rule
     public ExpectedException exception = ExpectedException.none();
+
+    @Test
+    public void transactionTracking() throws Exception
+    {
+        System.setProperty( "thresholdMinutes", "1" );
+
+        try ( Driver driver = GraphDatabase.driver( "bolt://localhost", AuthTokens.basic( "neo4j", "test" ),
+                Config.build().withLogging( new ConsoleLogging( Level.INFO ) ).toConfig() ) )
+        {
+            try ( Session session = driver.session() )
+            {
+                Session session2 = driver.session();
+                Transaction tx2 = session2.beginTransaction();
+                tx2.run( "RETURN 42" ).consume();
+                tx2.close();
+
+                Transaction tx1 = session2.beginTransaction();
+                tx1.run( "CREATE ()" ).consume();
+
+                try ( Transaction tx = session.beginTransaction() )
+                {
+                    tx.run( "RETURN 1" ).consume();
+                    tx.run( "RETURN 2" ).consume();
+
+                    System.out.println( "executed queries, about to sleep" );
+                    TimeUnit.MINUTES.sleep( 2 );
+                    System.out.println( "after sleep" );
+                }
+                System.out.println( "transaction committed, about to sleep" );
+                TimeUnit.MINUTES.sleep( 2 );
+                System.out.println( "done" );
+            }
+        }
+    }
 
     @Test
     public void shouldKnowSessionIsClosed() throws Throwable
