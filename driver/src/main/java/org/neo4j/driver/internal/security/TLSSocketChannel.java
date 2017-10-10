@@ -121,10 +121,12 @@ public class TLSSocketChannel implements ByteChannel
      */
     private void runHandshake() throws IOException
     {
-        logger.debug( "Running TLS handshake" );
+        debug( "Running TLS handshake" );
 
+        debug( "SSLEngine begin handshake" );
         sslEngine.beginHandshake();
         HandshakeStatus handshakeStatus = sslEngine.getHandshakeStatus();
+        debug( "Initial handshake status: " + handshakeStatus );
         while ( handshakeStatus != FINISHED && handshakeStatus != NOT_HANDSHAKING )
         {
             switch ( handshakeStatus )
@@ -144,17 +146,20 @@ public class TLSSocketChannel implements ByteChannel
             }
         }
 
-        logger.debug( "TLS handshake completed" );
+        debug( "TLS handshake completed" );
     }
 
     private HandshakeStatus runDelegatedTasks()
     {
+        debug( "Running delegated tasks" );
         Runnable runnable;
         while ( (runnable = sslEngine.getDelegatedTask()) != null )
         {
             runnable.run();
         }
-        return sslEngine.getHandshakeStatus();
+        HandshakeStatus handshakeStatus = sslEngine.getHandshakeStatus();
+        debug( "Handshake status after running delegated tasks: " + handshakeStatus );
+        return handshakeStatus;
     }
 
     /**
@@ -233,16 +238,22 @@ public class TLSSocketChannel implements ByteChannel
      */
     private HandshakeStatus unwrap( ByteBuffer buffer ) throws IOException
     {
+        debug( "Running unwrap" );
         HandshakeStatus handshakeStatus = sslEngine.getHandshakeStatus();
+        debug( "Handshake status in unwrap: " + handshakeStatus );
 
-        channelRead( cipherIn );
+        debug( "Reading encrypted data from channel" );
+        int read = channelRead( cipherIn );
+        debug( "Read " + read + " encrypted bytes from channel" );
         cipherIn.flip();
 
         Status status;
         do
         {
+            debug( "Decrypting received data" );
             SSLEngineResult unwrapResult = sslEngine.unwrap( cipherIn, plainIn );
             status = unwrapResult.getStatus();
+            debug( "Decrypting received data status: " + status );
             // Possible status here:
             // OK - good
             // BUFFER_OVERFLOW - we need to enlarge* plainIn
@@ -277,8 +288,8 @@ public class TLSSocketChannel implements ByteChannel
                 ByteBuffer newPlainIn = ByteBuffer.allocate( newAppSize );
                 newPlainIn.put( plainIn );
                 plainIn = newPlainIn;
-                logger.debug( "Enlarged application input buffer from %s to %s. " +
-                              "This operation should be a rare operation.", curAppSize, newAppSize );
+                debug( "Enlarged application input buffer from %s to %s. " +
+                       "This operation should be a rare operation.", curAppSize, newAppSize );
                 // retry the operation.
                 break;
             case BUFFER_UNDERFLOW:
@@ -290,8 +301,8 @@ public class TLSSocketChannel implements ByteChannel
                     ByteBuffer newCipherIn = ByteBuffer.allocate( netSize );
                     newCipherIn.put( cipherIn );
                     cipherIn = newCipherIn;
-                    logger.debug( "Enlarged network input buffer from %s to %s. " +
-                                  "This operation should be a rare operation.", curNetSize, netSize );
+                    debug( "Enlarged network input buffer from %s to %s. " +
+                           "This operation should be a rare operation.", curNetSize, netSize );
                 }
                 else
                 {
@@ -324,8 +335,11 @@ public class TLSSocketChannel implements ByteChannel
      */
     private HandshakeStatus wrap( ByteBuffer buffer ) throws IOException, ClientException
     {
+        debug( "Running wrap" );
         HandshakeStatus handshakeStatus = sslEngine.getHandshakeStatus();
+        debug( "Handshake status in wrap: " + handshakeStatus );
         Status status = sslEngine.wrap( buffer, cipherOut ).getStatus();
+        debug( "Handshake status after wrap: " + status );
         // Possible status here:
         // Ok - good
         // BUFFER_OVERFLOW - we need to enlarge cipherOut to hold all ciphered data (should happen very rare)
@@ -349,12 +363,13 @@ public class TLSSocketChannel implements ByteChannel
             {
                 // enlarge the peer application data buffer
                 cipherOut = ByteBuffer.allocate( netSize );
-                logger.debug( "Enlarged network output buffer from %s to %s. " +
-                              "This operation should be a rare operation.", curNetSize, netSize );
+                debug( "Enlarged network output buffer from %s to %s. " +
+                       "This operation should be a rare operation.", curNetSize, netSize );
             }
             else
             {
-                logger.debug( "Network output buffer doesn't need enlarging, flushing data to the channel instead to open up space on the buffer." );
+                debug( "Network output buffer doesn't need enlarging, flushing data to the channel instead to open up" +
+                       " space on the buffer." );
                 // flush as much data as possible
                 cipherOut.flip();
                 while ( cipherOut.hasRemaining() ) {
@@ -364,10 +379,12 @@ public class TLSSocketChannel implements ByteChannel
                         break;
                     }
 
-                    logger.debug( "having difficulty flushing data (network contention on local computer?). will continue trying after yielding execution." );
+                    debug( "having difficulty flushing data (network contention on local computer?). will continue " +
+                           "trying after yielding execution." );
                     Thread.yield();
 
-                    logger.debug( "nothing written to the underlying channel (network output buffer is full?), will try till we can." );
+                    debug( "nothing written to the underlying channel (network output buffer is full?), will try till" +
+                           " we can." );
                 }
                 cipherOut.compact();
             }
@@ -482,12 +499,12 @@ public class TLSSocketChannel implements ByteChannel
             }
             // Close transport
             channel.close();
-            logger.debug( "Closed secure channel" );
+            debug( "Closed secure channel" );
         }
         catch ( IOException e )
         {
             // Treat this as ok - the connection is closed, even if the TLS session did not exit cleanly.
-            logger.error( "TLS socket could not be closed cleanly", e );
+            error( "TLS socket could not be closed cleanly", e );
         }
     }
 
@@ -495,5 +512,16 @@ public class TLSSocketChannel implements ByteChannel
     public String toString()
     {
         return "TLSSocketChannel{plainIn: " + plainIn + ", cipherIn:" + cipherIn + "}";
+    }
+
+    private void debug( String message, Object... params )
+    {
+        String originalMessage = String.format( message, params );
+        logger.debug( "Thread [%s] %s", Thread.currentThread().getName(), originalMessage );
+    }
+
+    private void error( String message, Throwable t )
+    {
+        logger.error( String.format( "Thread [%s] %s", Thread.currentThread().getName(), message ), t );
     }
 }
